@@ -39,6 +39,6 @@
   },
   "pi": {
     "extensions": ["./index.ts"],
-    "image": "./media/pi-splash.png"
+    "image": "https://raw.githubusercontent.com/underactive/pi-startup-splash/main/media/pi-splash.png"
   }
 }
