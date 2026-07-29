@@ -181,6 +181,9 @@ describe("sanitizeTuiText (T-06)", () => {
 	it("strips SGR sequences", () => {
 		assert.equal(sanitizeTuiText(`${SGR_RED}red\x1b[0m`), "red");
 	});
+	it("strips CSI control sequences", () => {
+		assert.equal(sanitizeTuiText("\x1b[2J\x1b[Hhello"), "hello");
+	});
 	it("strips OSC-8 hyperlink envelopes", () => {
 		assert.equal(sanitizeTuiText(OSC_LINK), "link");
 	});
