@@ -435,8 +435,8 @@ export class StartupGate {
 				body.push(
 					`${selected ? this.theme.fg("accent", "▶") : " "} ` +
 						`${this.theme.fg(selected ? "accent" : "text", preview)}` +
-						`${showCount ? gap + this.theme.fg("muted", count) : ""}` +
-						`${showDate ? gap + this.theme.fg("dim", date) : ""}`,
+						`${showCount ? gap + this.theme.fg(selected ? "accent" : "muted", count) : ""}` +
+						`${showDate ? gap + this.theme.fg(selected ? "accent" : "dim", date) : ""}`,
 				);
 			}
 			if (this.sessions.length > GATE_LIST_HEIGHT) {
