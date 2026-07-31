@@ -11,8 +11,6 @@ export const state = {
 	loadedSkills: [] as string[],
 	loadedExtensions: [] as string[],
 	systemPromptSize: undefined as number | undefined,
-	/** True when the splash header lists every skill and extension inline (terminal is tall enough). */
-	skillsExtensionsListed: false,
 };
 
 /** Callbacks wired by the active header component so model_select can force a refresh. */

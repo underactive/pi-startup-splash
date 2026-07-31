@@ -26,5 +26,4 @@ export function resetModuleState(): void {
 	state.loadedSkills = [];
 	state.loadedExtensions = [];
 	state.systemPromptSize = undefined;
-	state.skillsExtensionsListed = false;
 }

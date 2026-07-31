@@ -7,7 +7,7 @@ export const SWATCH_HUE_START = 320;
 /** Plate colors for the info panel: navy under light-on-dark themes, paper under dark-on-light. */
 export const PANEL_BG_DARK = rgbFromHex("#101830");
 export const PANEL_BG_LIGHT = rgbFromHex("#eef0f7");
-/** WCAG relative-luminance threshold that separates light-on-dark from dark-on-light themes. */
+/** Rec.601 luma threshold that separates light-on-dark from dark-on-light themes. */
 export const PANEL_LUMINANCE_THRESHOLD = 140;
 
 /** An `r;g;b` triplet, ready to splice into a truecolor SGR sequence. */

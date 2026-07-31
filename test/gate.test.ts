@@ -104,7 +104,7 @@ interface GateHarness {
 	results: GateResolution[];
 }
 
-function makeGate(options: { skillsInline?: boolean; rows?: number; setModelResult?: boolean } = {}): GateHarness {
+function makeGate(options: { rows?: number; setModelResult?: boolean } = {}): GateHarness {
 	const tui = createFakeTui({ rows: options.rows ?? 40, columns: 100 });
 	const models = [makeModel("anthropic", "claude-opus-4"), makeModel("openai", "gpt-4o")];
 	const ctx = createFakeCtx({
@@ -122,7 +122,7 @@ function makeGate(options: { skillsInline?: boolean; rows?: number; setModelResu
 	});
 	const pi = createFakePi({ thinkingLevel: "medium", setModelResult: options.setModelResult ?? true });
 	const results: GateResolution[] = [];
-	const gate = new StartupGate(tui.tui, makeTheme(), ctx.ctx, pi.pi, (r) => results.push(r), options.skillsInline ?? false);
+	const gate = new StartupGate(tui.tui, makeTheme(), ctx.ctx, pi.pi, (r) => results.push(r));
 	return { gate, tui, ctx, pi, results };
 }
 
@@ -172,13 +172,6 @@ describe("menu (GA-04..GA-08)", () => {
 		for (let i = 0; i < 20; i++) top.gate.handleInput(KEY.up);
 		top.gate.handleInput(KEY.enter);
 		assert.deepEqual(top.results, ["proceed"], "clamped at the first item (New session)");
-	});
-	it("skillsInline hides the drill-in row and neutralizes its hotkey (GA-07)", () => {
-		const harness = makeGate({ skillsInline: true });
-		assert.equal(menuText(harness).includes("Skills and Extensions"), false);
-		harness.gate.handleInput("s");
-		assert.equal(harness.tui.overlays.length, 0, "hotkey must not open a popup");
-		assert.deepEqual(harness.results, []);
 	});
 	it("render stays within width for widths 1..200 (GA-08)", () => {
 		const harness = makeGate();

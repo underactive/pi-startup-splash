@@ -23,7 +23,6 @@ import {
 } from "../src/splash.ts";
 import { LOGO_INK, LOGO_LINES, LOGO_SHADOW, LOGO_SHADOW_OFFSET, LOGO_WIDTH } from "../src/logo.ts";
 import { PANEL_BG_DARK } from "../src/color.ts";
-import { state } from "../src/state.ts";
 import { sanitizeTuiText } from "../src/text.ts";
 import { resetModuleState } from "./helpers/reset.ts";
 import { makeTheme } from "./helpers/theme.ts";
@@ -211,7 +210,6 @@ describe("collapse conditions (S-07)", () => {
 		for (const name of [...skills, ...extensions]) {
 			assert.ok(text.includes(name), `${name} should be listed inline`);
 		}
-		assert.equal(state.skillsExtensionsListed, true);
 	});
 
 	it("row budget exceeded collapses to a counts line", () => {
@@ -220,7 +218,6 @@ describe("collapse conditions (S-07)", () => {
 		const text = lines.map((l) => sanitizeTuiText(l)).join("\n");
 		assert.ok(text.includes("[skills] 40"), "counts line expected");
 		assert.equal(text.includes("skill-number-0"), false, "names must not be listed");
-		assert.equal(state.skillsExtensionsListed, false);
 	});
 
 	it("inline listing never exceeds the 60% row budget (README)", () => {
@@ -229,7 +226,7 @@ describe("collapse conditions (S-07)", () => {
 		let collapsedSeen = false;
 		for (let termRows = 30; termRows <= 60; termRows += 2) {
 			const lines = buildHeader(160, termRows, theme, mediumSet, extensions, MODEL, 4000);
-			if (state.skillsExtensionsListed) {
+			if (lines.some((line) => sanitizeTuiText(line).includes(mediumSet[0]!))) {
 				inlineSeen = true;
 				assert.ok(
 					lines.length <= Math.floor(termRows * MAX_SPLASH_ROW_SHARE),
@@ -249,7 +246,6 @@ describe("collapse conditions (S-07)", () => {
 		const text = lines.map((l) => sanitizeTuiText(l)).join("\n");
 		assert.ok(text.includes("[skills] 1"), "counts line expected");
 		assert.equal(text.includes(wide), false, "the overlong name must not be listed");
-		assert.equal(state.skillsExtensionsListed, false);
 	});
 });
 

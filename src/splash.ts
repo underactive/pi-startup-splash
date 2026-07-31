@@ -1,6 +1,5 @@
 import { VERSION } from "@earendil-works/pi-coding-agent";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { state } from "./state.ts";
 import { RESET, panelBg, sgrBg, sgrFg, swatchColor } from "./color.ts";
 import type { Rgb } from "./color.ts";
 import { LOGO_INK, LOGO_LINES, LOGO_SHADOW, LOGO_SHADOW_OFFSET, LOGO_WIDTH } from "./logo.ts";
@@ -201,7 +200,6 @@ export function buildHeader(width: number, termRows: number, theme: Theme, skill
 	const lines = listed && splashHeight(listed) <= rowBudget
 		? listed
 		: frame([buildCountsLine(theme, skills, extensions, innerWidth)]);
-	state.skillsExtensionsListed = listed !== undefined && splashHeight(listed) <= rowBudget;
 	const height = splashHeight(lines);
 	const panelX = sideBySide ? width - SPLASH_MARGIN_X - panelWidth : Math.max(0, Math.floor((width - panelWidth) / 2));
 	return paintSplash(

@@ -39,17 +39,6 @@ export class StartupGate {
 		{ label: "Quit", action: "quit", icon: "\u{f0a48}", hotkey: "q" }, // nf-md-exit_run
 	];
 
-	/**
-	 * Menu items visible in the current context. When every skill and extension is already
-	 * listed inline in the splash header, the drill-in item is hidden — it would be redundant.
-	 */
-	private activeMenu(): typeof this.menu {
-		if (this.skillsInline) {
-			return this.menu.filter((item) => item.action !== "skills-extensions");
-		}
-		return this.menu;
-	}
-
 	private sessions: SessionListItem[] | null = null;
 	private sessionsLoading = false;
 	private sessionIndex = 0;
@@ -86,7 +75,6 @@ export class StartupGate {
 	private readonly ctx: ExtensionContext;
 	private readonly pi: ExtensionAPI;
 	private readonly done: (result: GateResolution) => void;
-	private readonly skillsInline: boolean;
 
 	constructor(
 		tui: TUI,
@@ -94,14 +82,12 @@ export class StartupGate {
 		ctx: ExtensionContext,
 		pi: ExtensionAPI,
 		done: (result: GateResolution) => void,
-		skillsInline: boolean,
 	) {
 		this.tui = tui;
 		this.theme = theme;
 		this.ctx = ctx;
 		this.pi = pi;
 		this.done = done;
-		this.skillsInline = skillsInline;
 	}
 
 	handleInput(data: string): void {
@@ -157,7 +143,7 @@ export class StartupGate {
 	}
 
 	private handleMenu(data: string): void {
-		const menu = this.activeMenu();
+		const menu = this.menu;
 		if (matchesKey(data, "escape")) { this.finish("proceed"); return; }
 		if (matchesKey(data, "up")) { this.menuIndex = Math.max(0, this.menuIndex - 1); return; }
 		if (matchesKey(data, "down")) { this.menuIndex = Math.min(menu.length - 1, this.menuIndex + 1); return; }
@@ -378,7 +364,7 @@ export class StartupGate {
 	private static readonly MENU_HOTKEY_GAP = 8;
 
 	private renderMenu(width: number): string[] {
-		const menu = this.activeMenu();
+		const menu = this.menu;
 		// Terminals 30 rows or taller get a blank row between items for a more relaxed layout.
 		const spacious = this.tui.terminal.rows >= 30;
 		// Every row is laid out to the same block width (icon + label column, hotkey right-
@@ -598,7 +584,7 @@ export async function runStartupGate(pi: ExtensionAPI, ctx: ExtensionContext): P
 	ctx.ui.setFooter(() => ({ render: () => [], invalidate() {} }));
 	try {
 		return await ctx.ui.custom<GateResolution>((tui, theme, _keybindings, done) =>
-			new StartupGate(tui, theme, ctx, pi, done, state.skillsExtensionsListed),
+			new StartupGate(tui, theme, ctx, pi, done),
 		);
 	} finally {
 		ctx.ui.setFooter(undefined);
