@@ -181,13 +181,20 @@ describe("discoverExtensionNamesFromFilesystem (D-06, D-08)", () => {
 		assert.deepEqual(names, ["single"], `got ${JSON.stringify(names)}`);
 	});
 
-	it("INFERRED (D-08): a symlink escaping the agent dir is skipped without throwing", () => {
+	it("INFERRED (D-08): a symlink to an existing target outside the agent dir is followed", () => {
 		seedExtensionsDir();
 		const outside = join(env.cwd, "outside-ext.ts");
 		writeFileSync(outside, "");
 		symlinkSync(outside, join(env.agentDir, "extensions", "escapee.ts"));
 		const names = discoverExtensionNamesFromFilesystem();
-		assert.equal(names.includes("escapee"), false, `got ${JSON.stringify(names)}`);
+		assert.ok(names.includes("escapee"), `got ${JSON.stringify(names)}`);
+	});
+
+	it("INFERRED (D-08): a broken symlink is skipped without throwing", () => {
+		seedExtensionsDir();
+		symlinkSync(join(env.cwd, "missing-target.ts"), join(env.agentDir, "extensions", "broken.ts"));
+		const names = discoverExtensionNamesFromFilesystem();
+		assert.equal(names.includes("broken"), false, `got ${JSON.stringify(names)}`);
 	});
 });
 

@@ -146,7 +146,8 @@ export function discoverExtensionNamesFromFilesystem(): string[] {
 				if (entry.isSymbolicLink()) {
 					try {
 						const realPath = realpathSync(entryPath);
-						if (!realPath.startsWith(agentDir)) continue;
+						// Skip symlinks pointing to a non-existent target.
+						if (!existsSync(realPath)) continue;
 						isDir = statSync(entryPath).isDirectory();
 					} catch { continue; }
 				}

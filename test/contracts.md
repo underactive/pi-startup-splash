@@ -115,7 +115,7 @@ Timer strategy (decided by smoke test, step 3): _recorded after the smoke test �
 | D-05 | `readInstalledExtensionNames` | direct dependencies of `<agentDir>/npm/package.json` only; missing/malformed → empty set | doc comment |
 | D-06 | `discoverExtensionNamesFromFilesystem` | discovers from well-known locations (`<agentDir>/extensions/*` incl. `dir/index.ts` and `name.ts` — README's install path); under `--no-extensions` only explicitly-passed sources are reported | doc comment + README installation section |
 | D-07 | `getLoadedHeaderItems` | skills: commands with `source === "skill"`, normalized; extensions: union of command/tool/filesystem sources, named via D-01, deduped+sorted | doc comment ("Combines command-registering, tool-registering and event-only sources") |
-| D-08 | symlink escape | UNSPECIFIED (explorer mentioned realpath check; no doc): a symlink pointing outside the agent dir — assert only no-throw; record observed behavior in gap pass | — |
+| D-08 | symlink escape | a symlink whose target does not exist is skipped without throwing; a symlink to an existing target outside the agent dir is now followed | doc comment ("Skip symlinks pointing to a non-existent target."); amended 2026-07-30 (the prior agent-dir-prefix check silently excluded dev symlinks — e.g. this extension's own install under `~/.pi/agent/extensions/`) |
 
 ## relaunch.ts
 
