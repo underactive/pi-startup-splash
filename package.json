@@ -1,8 +1,11 @@
 {
   "name": "@underactive/pi-startup-splash",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "A Pi extension that replaces the default startup header with an informative splash screen and optionally adds an interactive startup gate menu",
-  "keywords": ["pi-package", "pi-extension"],
+  "keywords": [
+    "pi-package",
+    "pi-extension"
+  ],
   "license": "MIT",
   "author": "Eric Sison",
   "repository": {
@@ -20,7 +23,13 @@
   "publishConfig": {
     "access": "public"
   },
-  "files": ["index.ts", "src/**/*.ts", "media/", "README.md", "LICENSE"],
+  "files": [
+    "index.ts",
+    "src/**/*.ts",
+    "media/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-reporter=dot --test-reporter-destination=stdout test/*.test.ts"
@@ -38,7 +47,9 @@
     "typescript": "^5.9.3"
   },
   "pi": {
-    "extensions": ["./index.ts"],
+    "extensions": [
+      "./index.ts"
+    ],
     "image": "https://raw.githubusercontent.com/underactive/pi-startup-splash/main/media/pi-splash.png"
   }
 }
