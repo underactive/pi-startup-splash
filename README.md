@@ -4,10 +4,19 @@ Pi extension that replaces the default startup header with an edge-to-edge full-
 
 ![pi-splash](https://raw.githubusercontent.com/underactive/pi-startup-splash/main/media/pi-splash.png)
 
-- displays the pi version, active model, system prompt size, and the loaded skills and extensions
-  in a dark info panel beside the logo, each list under a `[skills] 24`/`[extensions] 40` heading.
-  If the terminal is too small — splash over 60% of the height, or a name too long to fit — both
-  lists collapse to a single `[skills] 24 · [extensions] 40` counts line
+- displays the pi version, active model, system prompt size, and the loaded context files, skills
+  and extensions in a dark info panel beside the logo, each list under a
+  `[context] 2`/`[skills] 24`/`[extensions] 40` heading. The context files are exactly the sources
+  pi's `/loaded` Context section lists — the SYSTEM.md/APPEND_SYSTEM.md system-prompt sources
+  (project `.pi/` when trusted, else agent dir) and the AGENTS.md/CLAUDE.md files — discovered
+  and displayed with the same cwd-relative/`~`-shortened logic as pi's own. The extensions and
+  skills are likewise pi's actual loaded set: extensions come from the settings `packages` and
+  `extensions` lists plus agent/project `.pi/extensions` auto-discovery (with `+`/`-` overrides
+  and `--extension`/`--no-extensions` honored), labeled with pi's own compact labels (`pkg:src`
+  for package entries, shortest unique path suffix otherwise); skills are the `skill:`-prefixed
+  commands pi registers. If the terminal is too
+  small — splash over 60% of the height, or a name too long to fit — the lists collapse to a
+  single `[context] 2 · [skills] 24 · [extensions] 40` counts line
 - optionally shows a blocking startup gate menu on launch (New session, Resume session, Model, Skills and
   Extensions, Theme, Quit), each item with an icon and a single-letter hotkey
 

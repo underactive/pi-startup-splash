@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
+	cliContextFilesDisabled,
 	cliExtensionArgs,
-	discoverExtensionNamesFromFilesystem,
-	ENTRY_HOLDER_DIRS,
-	extensionNameFromPath,
+	cliSystemPromptSources,
+	discoverAppendSystemPromptFile,
+	discoverSystemPromptFile,
+	formatContextPath,
+	getLoadedContextFiles,
 	getLoadedHeaderItems,
-	packageNameForEntryHolder,
-	readInstalledExtensionNames,
-	readNpmPackageName,
+	getSystemPromptSources,
 } from "../src/discovery.ts";
 import { setArgv, tempAgentDir, type TempAgentEnv } from "./helpers/env.ts";
 import { createFakePi } from "./helpers/fake-api.ts";
@@ -25,39 +27,6 @@ beforeEach(() => {
 afterEach(() => {
 	restoreArgv();
 	env.restore();
-});
-
-function writeJson(path: string, value: unknown): void {
-	mkdirSync(join(path, ".."), { recursive: true });
-	writeFileSync(path, JSON.stringify(value));
-}
-
-describe("extensionNameFromPath (D-01)", () => {
-	it("1. inline sentinels pass through verbatim", () => {
-		assert.equal(extensionNameFromPath("<inline:llama.cpp>"), "<inline:llama.cpp>");
-	});
-	it("2. scoped npm packages", () => {
-		assert.equal(
-			extensionNameFromPath("/x/node_modules/@scope/pkg-name/dist/index.js"),
-			"@scope/pkg-name",
-		);
-	});
-	it("3. unscoped npm packages", () => {
-		assert.equal(extensionNameFromPath("/x/node_modules/pkg-name/dist/index.js"), "pkg-name");
-	});
-	it("4. index under a generic holder dir is labeled by its package", () => {
-		const pkgRoot = join(env.cwd, "my-extension");
-		mkdirSync(join(pkgRoot, "src"), { recursive: true });
-		writeFileSync(join(pkgRoot, "package.json"), JSON.stringify({ name: "real-package-name" }));
-		writeFileSync(join(pkgRoot, "src", "index.ts"), "");
-		assert.equal(extensionNameFromPath(join(pkgRoot, "src", "index.ts")), "real-package-name");
-	});
-	it("5. index.ts in a named dir uses the dir name", () => {
-		assert.equal(extensionNameFromPath("/somewhere/ext-name/index.ts"), "ext-name");
-	});
-	it("6. a named file uses its basename", () => {
-		assert.equal(extensionNameFromPath("/somewhere/cool-ext.ts"), "cool-ext");
-	});
 });
 
 describe("cliExtensionArgs (D-02)", () => {
@@ -81,128 +50,184 @@ describe("cliExtensionArgs (D-02)", () => {
 	});
 });
 
-describe("readNpmPackageName (D-03)", () => {
-	it("reads a valid name", () => {
-		const root = join(env.cwd, "pkg");
-		writeJson(join(root, "package.json"), { name: "@scope/thing" });
-		assert.equal(readNpmPackageName(root), "@scope/thing");
-	});
-	it("undefined for a non-string name", () => {
-		const root = join(env.cwd, "pkg-num");
-		writeJson(join(root, "package.json"), { name: 42 });
-		assert.equal(readNpmPackageName(root), undefined);
-	});
-	it("undefined for malformed JSON", () => {
-		const root = join(env.cwd, "pkg-bad");
-		mkdirSync(root, { recursive: true });
-		writeFileSync(join(root, "package.json"), "{not json");
-		assert.equal(readNpmPackageName(root), undefined);
-	});
-	it("undefined when the file is missing", () => {
-		assert.equal(readNpmPackageName(join(env.cwd, "nowhere")), undefined);
+describe("cliContextFilesDisabled (D-10)", () => {
+	it("false by default, true under --no-context-files or -nc", () => {
+		assert.equal(cliContextFilesDisabled(), false);
+		restoreArgv();
+		restoreArgv = setArgv(["--no-context-files"]);
+		assert.equal(cliContextFilesDisabled(), true);
+		restoreArgv();
+		restoreArgv = setArgv(["-nc"]);
+		assert.equal(cliContextFilesDisabled(), true);
 	});
 });
 
-describe("packageNameForEntryHolder (D-04)", () => {
-	it("holder dirs resolve to the owning package name", () => {
-		const pkgRoot = join(env.cwd, "holder-pkg");
-		writeJson(join(pkgRoot, "package.json"), { name: "the-package" });
-		for (const holder of ENTRY_HOLDER_DIRS) {
-			const entryDir = join(pkgRoot, holder);
-			mkdirSync(entryDir, { recursive: true });
-			assert.equal(packageNameForEntryHolder(entryDir), "the-package", holder);
-		}
+describe("formatContextPath (D-11)", () => {
+	it("paths inside cwd are shown relative, outside are ~-shortened or absolute", () => {
+		assert.equal(formatContextPath(join(env.cwd, "AGENTS.md"), env.cwd), "AGENTS.md");
+		assert.equal(formatContextPath(join(env.cwd, "docs", "CLAUDE.md"), env.cwd), join("docs", "CLAUDE.md"));
+		// A parent dir is outside cwd (".." does not count as inside, mirroring pi), so it
+		// falls back to the absolute/~ form rather than "../...".
+		const parent = formatContextPath(join(env.cwd, "..", "sibling", "AGENTS.md"), env.cwd);
+		assert.notEqual(parent, join("..", "sibling", "AGENTS.md"));
+		assert.match(parent, /^(\/|~|[A-Za-z]:)/, `absolute or ~-shortened expected, got ${parent}`);
 	});
-	it("dirs that name their extension are left alone", () => {
-		const pkgRoot = join(env.cwd, "named-pkg");
-		writeJson(join(pkgRoot, "package.json"), { name: "the-package" });
-		const entryDir = join(pkgRoot, "custom-dir");
-		mkdirSync(entryDir, { recursive: true });
-		assert.equal(packageNameForEntryHolder(entryDir), undefined);
+	it("paths under the home dir are ~-shortened", () => {
+		assert.equal(formatContextPath(join(homedir(), "agent", "AGENTS.md"), env.cwd), join("~", "agent", "AGENTS.md"));
 	});
 });
 
-describe("readInstalledExtensionNames (D-05)", () => {
-	it("reads direct dependencies from the agent npm manifest", () => {
-		writeJson(join(env.agentDir, "npm", "package.json"), {
-			dependencies: { "@scope/ext-one": "1.0.0", "plain-ext": "2.0.0" },
-			devDependencies: { "dev-only": "1.0.0" },
+describe("cliSystemPromptSources (D-12)", () => {
+	it("empty by default", () => {
+		assert.deepEqual(cliSystemPromptSources(), { systemPrompt: undefined, appendSystemPrompt: [] });
+	});
+	it("parses --system-prompt and --append-system-prompt in space and = forms", () => {
+		restoreArgv();
+		restoreArgv = setArgv([
+			"--system-prompt",
+			"/sp.md",
+			"--append-system-prompt=/a1.md",
+			"--append-system-prompt",
+			"/a2.md",
+			"--other",
+			"--system-prompt",
+		]);
+		assert.deepEqual(cliSystemPromptSources(), {
+			systemPrompt: "/sp.md",
+			appendSystemPrompt: ["/a1.md", "/a2.md"],
 		});
-		const names = readInstalledExtensionNames();
-		assert.ok(names.has("@scope/ext-one"));
-		assert.ok(names.has("plain-ext"));
-		assert.equal(names.has("dev-only"), false);
-	});
-	it("empty when the manifest is missing or malformed", () => {
-		assert.equal(readInstalledExtensionNames().size, 0);
-		mkdirSync(join(env.agentDir, "npm"), { recursive: true });
-		writeFileSync(join(env.agentDir, "npm", "package.json"), "{oops");
-		assert.equal(readInstalledExtensionNames().size, 0);
 	});
 });
 
-describe("discoverExtensionNamesFromFilesystem (D-06, D-08)", () => {
-	function seedExtensionsDir(): void {
-		const extDir = join(env.agentDir, "extensions");
-		mkdirSync(join(extDir, "dir-ext"), { recursive: true });
-		mkdirSync(join(extDir, "bare-dir"), { recursive: true });
-		writeFileSync(join(extDir, "single.ts"), "");
-		writeFileSync(join(extDir, "dir-ext", "index.ts"), "");
-		writeFileSync(join(extDir, ".hidden.ts"), "");
+describe("discoverSystemPromptFile / discoverAppendSystemPromptFile (D-13)", () => {
+	it("trusted project file wins over the agent file", () => {
+		mkdirSync(join(env.cwd, ".pi"), { recursive: true });
+		writeFileSync(join(env.cwd, ".pi", "SYSTEM.md"), "project");
+		writeFileSync(join(env.agentDir, "SYSTEM.md"), "global");
+		assert.equal(discoverSystemPromptFile(env.cwd, env.agentDir, true), join(env.cwd, ".pi", "SYSTEM.md"));
+	});
+	it("untrusted project file is skipped, agent file used instead", () => {
+		mkdirSync(join(env.cwd, ".pi"), { recursive: true });
+		writeFileSync(join(env.cwd, ".pi", "SYSTEM.md"), "project");
+		writeFileSync(join(env.agentDir, "SYSTEM.md"), "global");
+		assert.equal(discoverSystemPromptFile(env.cwd, env.agentDir, false), join(env.agentDir, "SYSTEM.md"));
+	});
+	it("undefined when neither exists", () => {
+		assert.equal(discoverSystemPromptFile(env.cwd, env.agentDir, true), undefined);
+		assert.equal(discoverAppendSystemPromptFile(env.cwd, env.agentDir, false), undefined);
+	});
+	it("APPEND_SYSTEM.md follows the same rules", () => {
+		mkdirSync(join(env.cwd, ".pi"), { recursive: true });
+		writeFileSync(join(env.cwd, ".pi", "APPEND_SYSTEM.md"), "project");
+		assert.equal(discoverAppendSystemPromptFile(env.cwd, env.agentDir, true), join(env.cwd, ".pi", "APPEND_SYSTEM.md"));
+		assert.equal(discoverAppendSystemPromptFile(env.cwd, env.agentDir, false), undefined);
+	});
+});
+
+describe("getSystemPromptSources (D-14)", () => {
+	function seedProjectFiles(): void {
+		mkdirSync(join(env.cwd, ".pi"), { recursive: true });
+		writeFileSync(join(env.cwd, ".pi", "SYSTEM.md"), "project-system");
+		writeFileSync(join(env.cwd, ".pi", "APPEND_SYSTEM.md"), "project-append");
 	}
 
-	it("finds file and dir/index extensions, skipping dotfiles", () => {
-		// UNSPECIFIED: a dir without an entry file (bare-dir) is also reported — whether
-		// that over-reports is an open question in the report; not asserted either way.
-		seedExtensionsDir();
-		const names = discoverExtensionNamesFromFilesystem();
-		assert.ok(names.includes("single"), `got ${JSON.stringify(names)}`);
-		assert.ok(names.includes("dir-ext"), `got ${JSON.stringify(names)}`);
-		assert.equal(names.some((n) => n.includes("hidden")), false);
+	it("discovered system prompt before append source", () => {
+		seedProjectFiles();
+		assert.deepEqual(getSystemPromptSources(env.cwd, env.agentDir, true), [
+			join(env.cwd, ".pi", "SYSTEM.md"),
+			join(env.cwd, ".pi", "APPEND_SYSTEM.md"),
+		]);
 	});
-
-	it("includes npm-installed extensions declared as dependencies", () => {
-		writeJson(join(env.agentDir, "npm", "package.json"), { dependencies: { "npm-ext": "1.0.0" } });
-		writeJson(join(env.agentDir, "npm", "node_modules", "npm-ext", "package.json"), {
-			name: "npm-ext",
-		});
-		const names = discoverExtensionNamesFromFilesystem();
-		assert.ok(names.includes("npm-ext"), `got ${JSON.stringify(names)}`);
-	});
-
-	it("under --no-extensions reports only explicitly-passed sources", () => {
-		seedExtensionsDir();
+	it("CLI sources override discovery entirely", () => {
+		seedProjectFiles();
+		const cliSp = join(env.cwd, "cli-sp.md");
+		const cliAp = join(env.cwd, "cli-ap.md");
+		writeFileSync(cliSp, "cli-system");
+		writeFileSync(cliAp, "cli-append");
 		restoreArgv();
-		restoreArgv = setArgv(["--no-extensions"]);
-		assert.deepEqual(discoverExtensionNamesFromFilesystem(), []);
+		restoreArgv = setArgv(["--system-prompt", cliSp, "--append-system-prompt", cliAp]);
+		assert.deepEqual(getSystemPromptSources(env.cwd, env.agentDir, true), [cliSp, cliAp]);
+	});
+	it("CLI values that are not existing files are dropped", () => {
 		restoreArgv();
-		restoreArgv = setArgv(["--no-extensions", "-e", join(env.agentDir, "extensions", "single.ts")]);
-		const names = discoverExtensionNamesFromFilesystem();
-		assert.deepEqual(names, ["single"], `got ${JSON.stringify(names)}`);
+		restoreArgv = setArgv(["--system-prompt", "plain text override", "--append-system-prompt", "more text"]);
+		assert.deepEqual(getSystemPromptSources(env.cwd, env.agentDir, true), []);
+	});
+	it("untrusted project: agent-dir files only", () => {
+		seedProjectFiles();
+		writeFileSync(join(env.agentDir, "SYSTEM.md"), "agent-system");
+		assert.deepEqual(getSystemPromptSources(env.cwd, env.agentDir, false), [join(env.agentDir, "SYSTEM.md")]);
+	});
+});
+
+describe("getLoadedContextFiles (D-09)", () => {
+	function seedContext(): string {
+		// Deeper project cwd so env.cwd acts as a real ancestor with its own context file.
+		const project = join(env.cwd, "project");
+		mkdirSync(project, { recursive: true });
+		writeFileSync(join(env.agentDir, "AGENTS.md"), "global");
+		writeFileSync(join(env.cwd, "CLAUDE.md"), "parent");
+		writeFileSync(join(project, "AGENTS.md"), "project");
+		return project;
+	}
+
+	it("lists global then ancestor context files in load order", () => {
+		const project = seedContext();
+		const files = getLoadedContextFiles(project, false);
+		// The temp dir names identify each file's owner across absolute/~ display forms.
+		const globalShown = files.filter((f) => f.includes("pi-splash-agent"));
+		assert.equal(globalShown.length, 1, `global file listed once: ${JSON.stringify(files)}`);
+		assert.ok(globalShown[0]!.endsWith("AGENTS.md"), "global AGENTS.md wins over CLAUDE.md");
+		const parentShown = files.filter((f) => f.includes("pi-splash-cwd"));
+		assert.equal(parentShown.length, 1, `parent file listed once: ${JSON.stringify(files)}`);
+		assert.ok(parentShown[0]!.endsWith("CLAUDE.md"), "parent CLAUDE.md picked when it has no AGENTS.md");
+		assert.equal(files[files.length - 1], "AGENTS.md", "project (innermost) file listed last");
+		assert.ok(files.indexOf(globalShown[0]!) < files.indexOf("AGENTS.md"), "global listed before project");
+		assert.ok(files.indexOf(parentShown[0]!) < files.indexOf("AGENTS.md"), "outer ancestors listed before inner");
 	});
 
-	it("INFERRED (D-08): a symlink to an existing target outside the agent dir is followed", () => {
-		seedExtensionsDir();
-		const outside = join(env.cwd, "outside-ext.ts");
-		writeFileSync(outside, "");
-		symlinkSync(outside, join(env.agentDir, "extensions", "escapee.ts"));
-		const names = discoverExtensionNamesFromFilesystem();
-		assert.ok(names.includes("escapee"), `got ${JSON.stringify(names)}`);
+	it("system prompt sources come before the agents files", () => {
+		const project = seedContext();
+		mkdirSync(join(project, ".pi"), { recursive: true });
+		writeFileSync(join(project, ".pi", "SYSTEM.md"), "project-system");
+		writeFileSync(join(project, ".pi", "APPEND_SYSTEM.md"), "project-append");
+		const files = getLoadedContextFiles(project, true);
+		assert.ok(files[0] === ".pi/SYSTEM.md" || files[0] === join(".pi", "SYSTEM.md"), JSON.stringify(files));
+		assert.ok(files[1] === ".pi/APPEND_SYSTEM.md" || files[1] === join(".pi", "APPEND_SYSTEM.md"), JSON.stringify(files));
+		assert.equal(files[files.length - 1], "AGENTS.md", "agents files last");
 	});
 
-	it("INFERRED (D-08): a broken symlink is skipped without throwing", () => {
-		seedExtensionsDir();
-		symlinkSync(join(env.cwd, "missing-target.ts"), join(env.agentDir, "extensions", "broken.ts"));
-		const names = discoverExtensionNamesFromFilesystem();
-		assert.equal(names.includes("broken"), false, `got ${JSON.stringify(names)}`);
+	it("AGENTS.md takes precedence over CLAUDE.md in the same dir", () => {
+		writeFileSync(join(env.agentDir, "AGENTS.md"), "global");
+		writeFileSync(join(env.agentDir, "CLAUDE.md"), "global-claude");
+		const files = getLoadedContextFiles(env.cwd, false);
+		const globalFiles = files.filter((f) => f.includes("pi-splash-agent"));
+		assert.equal(globalFiles.length, 1, `got ${JSON.stringify(files)}`);
+		assert.ok(globalFiles[0]!.endsWith("AGENTS.md"), "AGENTS.md must shadow CLAUDE.md");
+	});
+
+	it("CLAUDE.md is picked when AGENTS.md is absent", () => {
+		writeFileSync(join(env.cwd, "CLAUDE.md"), "project-claude");
+		const files = getLoadedContextFiles(env.cwd, false);
+		assert.ok(files.includes("CLAUDE.md"), `cwd file shows bare (cwd-relative): ${JSON.stringify(files)}`);
+		assert.equal(files.filter((f) => f.endsWith("CLAUDE.md")).length, 1, `got ${JSON.stringify(files)}`);
+	});
+
+	it("empty when --no-context-files is passed", () => {
+		seedContext();
+		restoreArgv();
+		restoreArgv = setArgv(["--no-context-files"]);
+		assert.deepEqual(getLoadedContextFiles(env.cwd, true), []);
 	});
 });
 
 describe("getLoadedHeaderItems (D-07)", () => {
-	it("merges skill commands, extension commands/tools and filesystem discovery, sorted", () => {
+	it("lists skill commands and pi-style discovered extensions, sorted", () => {
 		const extDir = join(env.agentDir, "extensions");
 		mkdirSync(extDir, { recursive: true });
 		writeFileSync(join(extDir, "fs-ext.ts"), "");
+		writeFileSync(join(env.agentDir, "AGENTS.md"), "global");
+		writeFileSync(join(env.cwd, "AGENTS.md"), "project");
 		const sourceInfo = (path: string) => ({ path, source: "extension", scope: "user", origin: "top-level" });
 		const harness = createFakePi({
 			commandsInfo: [
@@ -211,12 +236,13 @@ describe("getLoadedHeaderItems (D-07)", () => {
 			],
 			toolsInfo: [{ name: "a-tool", sourceInfo: sourceInfo("/exts/node_modules/@scope/tool-pkg/dist/index.js") }],
 		});
-		const { skills, extensions } = getLoadedHeaderItems(harness.pi);
+		const { skills, extensions, context } = getLoadedHeaderItems(harness.pi, env.cwd, false);
 		assert.ok(skills.includes("my-skill"), `skills: ${JSON.stringify(skills)}`);
-		assert.ok(extensions.includes("cmd-ext"), `extensions: ${JSON.stringify(extensions)}`);
-		assert.ok(extensions.includes("@scope/tool-pkg"), `extensions: ${JSON.stringify(extensions)}`);
-		assert.ok(extensions.includes("fs-ext"), `extensions: ${JSON.stringify(extensions)}`);
+		// Extensions come from pi-style discovery only: the on-disk file is listed (labeled by
+		// path suffix), while command/tool sources add nothing — pi filters hidden inline
+		// extensions from its display and lists what it actually loaded.
+		assert.deepEqual(extensions, ["fs-ext.ts"], `extensions: ${JSON.stringify(extensions)}`);
 		assert.deepEqual(skills, [...skills].sort());
-		assert.deepEqual(extensions, [...extensions].sort());
+		assert.ok(context.includes("AGENTS.md"), `context: ${JSON.stringify(context)}`);
 	});
 });
