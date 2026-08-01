@@ -28,7 +28,7 @@ export function ensureQuietStartup(cwd: string): boolean {
 }
 
 export function installHeader(pi: ExtensionAPI, ctx: ExtensionContext) {
-	({ skills: state.loadedSkills, extensions: state.loadedExtensions } = getLoadedHeaderItems(pi));
+	({ skills: state.loadedSkills, extensions: state.loadedExtensions, context: state.loadedContext } = getLoadedHeaderItems(pi, ctx.cwd, ctx.isProjectTrusted()));
 	ctx.ui.setHeader((tui: TUI, theme: Theme) => {
 		headerRenderState.requestRender = () => tui.requestRender();
 		// force=true resets the differential renderer and repaints from a cleared screen
@@ -50,7 +50,7 @@ export function installHeader(pi: ExtensionAPI, ctx: ExtensionContext) {
 					cachedModelKey = modelKey;
 					cachedSystemPromptSize = state.systemPromptSize;
 					cachedTick = taglineReveal.tick;
-					cachedLines = buildHeader(width, rows, theme, state.loadedSkills, state.loadedExtensions, ctx.model ? { id: ctx.model.id, provider: ctx.model.provider } : undefined, state.systemPromptSize);
+					cachedLines = buildHeader(width, rows, theme, state.loadedContext, state.loadedSkills, state.loadedExtensions, ctx.model ? { id: ctx.model.id, provider: ctx.model.provider } : undefined, state.systemPromptSize);
 				}
 				return cachedLines;
 			},

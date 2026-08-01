@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
@@ -57,7 +57,9 @@ describe("ensureQuietStartup (H-02, H-03)", () => {
 });
 
 describe("installHeader (H-04, H-05)", () => {
-	function install(): { tui: FakeTuiHarness; ctx: FakeCtxHarness; component: Component } {
+	function install(options: { projectTrusted?: boolean } = {}): { tui: FakeTuiHarness; ctx: FakeCtxHarness; component: Component } {
+		// A project context file so the splash has something to list under [context].
+		writeFileSync(join(env.cwd, "AGENTS.md"), "# project context");
 		const tui = createFakeTui({ rows: 40, columns: 120 });
 		const ctx = createFakeCtx({
 			cwd: env.cwd,
@@ -65,6 +67,7 @@ describe("installHeader (H-04, H-05)", () => {
 			tui: tui.tui,
 			model: makeModel("anthropic", "claude-opus-4"),
 			systemPrompt: "x".repeat(4000),
+			projectTrusted: options.projectTrusted ?? false,
 		});
 		const pi = createFakePi({
 			commandsInfo: [
@@ -86,6 +89,7 @@ describe("installHeader (H-04, H-05)", () => {
 		const { tui, component } = install();
 		assert.equal(state.systemPromptSize, 4000);
 		assert.ok(state.loadedSkills.includes("my-skill"), JSON.stringify(state.loadedSkills));
+		assert.ok(state.loadedContext.includes("AGENTS.md"), JSON.stringify(state.loadedContext));
 		assert.notEqual(taglineReveal.timer, null, "tagline reveal should be running");
 		assert.equal(typeof headerRenderState.requestRender, "function");
 		assert.equal(typeof headerRenderState.invalidate, "function");
@@ -100,6 +104,28 @@ describe("installHeader (H-04, H-05)", () => {
 		for (let width = 1; width <= 200; width += 3) {
 			assertLinesExact(component.render(width), width, `header render(width=${width})`);
 		}
+	});
+
+	it("renders the loaded context file under a [context] heading", () => {
+		const { component } = install();
+		stopTaglineReveal();
+		const text = component.render(120).map(sanitizeTuiText).join("\n");
+		assert.ok(text.includes("[context] 1"), text);
+		assert.ok(text.includes("AGENTS.md"), text);
+		assert.ok(text.indexOf("[context]") < text.indexOf("[skills]"), "context section precedes skills");
+	});
+
+	it("counts trusted-project system prompt sources in the context list", () => {
+		mkdirSync(join(env.cwd, ".pi"), { recursive: true });
+		writeFileSync(join(env.cwd, ".pi", "SYSTEM.md"), "# system prompt");
+		writeFileSync(join(env.cwd, ".pi", "APPEND_SYSTEM.md"), "# appended");
+		const { component } = install({ projectTrusted: true });
+		stopTaglineReveal();
+		const text = component.render(120).map(sanitizeTuiText).join("\n");
+		assert.ok(text.includes("[context] 3"), text);
+		assert.ok(text.includes(".pi/SYSTEM.md"), text);
+		assert.ok(text.includes(".pi/APPEND_SYSTEM.md"), text);
+		assert.ok(text.includes("AGENTS.md"), text);
 	});
 
 	it("a model change is reflected after invalidation (commit 1a88a1c)", () => {

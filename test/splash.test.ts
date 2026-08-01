@@ -69,17 +69,24 @@ describe("buildLabeledWrappedSection (S-02)", () => {
 });
 
 describe("buildCountsLine (S-03)", () => {
-	it("collapses both lists to counts", () => {
+	it("collapses all three lists to counts", () => {
+		const context = ["AGENTS.md", "CLAUDE.md"];
 		const skills = ["a", "b", "c"];
 		const extensions = ["p", "q", "r", "s", "t"];
-		for (let width = 30; width <= 90; width += 5) {
-			const line = buildCountsLine(theme, skills, extensions, width);
+		for (let width = 45; width <= 90; width += 5) {
+			const line = buildCountsLine(theme, context, skills, extensions, width);
 			const text = sanitizeTuiText(line);
+			assert.ok(text.includes("[context] 2"), `width=${width}: ${JSON.stringify(text)}`);
 			assert.ok(text.includes("[skills] 3"), `width=${width}: ${JSON.stringify(text)}`);
 			assert.ok(text.includes("[extensions] 5"), `width=${width}`);
 			assert.ok(text.includes("·"), `width=${width}`);
 			assertLinesAtMost([line], width, `counts(width=${width})`);
 		}
+	});
+	it("context comes first in the collapsed line", () => {
+		const text = sanitizeTuiText(buildCountsLine(theme, ["AGENTS.md"], ["a"], ["b"], 60));
+		assert.ok(text.indexOf("[context]") < text.indexOf("[skills]"), text);
+		assert.ok(text.indexOf("[skills]") < text.indexOf("[extensions]"), text);
 	});
 });
 
@@ -155,7 +162,7 @@ describe("shadow spare row (S-09)", () => {
 
 	it("side-by-side: glyph rows span the logo plus one shadow row", () => {
 		const width = 160;
-		const lines = buildHeader(width, 60, theme, [], [], MODEL, 2048);
+		const lines = buildHeader(width, 60, theme, [], [], [], MODEL, 2048);
 		const panelX = width - SPLASH_MARGIN_X - Math.min(PANEL_MAX_WIDTH, width - SPLASH_MARGIN_X * 2 - LOGO_WIDTH - LOGO_GAP);
 		const rows = glyphRows(lines, panelX);
 		assert.ok(rows.length > 0, "logo ink present");
@@ -167,27 +174,28 @@ describe("shadow spare row (S-09)", () => {
 	});
 
 	it("stacked: the row below the logo carries the shadow, the next is bare swatch", () => {
-		const lines = buildHeader(40, 60, theme, [], [], MODEL, 2048);
+		const lines = buildHeader(40, 60, theme, [], [], [], MODEL, 2048);
 		assert.match(sanitizeTuiText(lines[LOGO_LINES.length] ?? ""), /[^▀ ]/, "spare row carries shadow glyphs");
 		assert.doesNotMatch(sanitizeTuiText(lines[LOGO_LINES.length + 1] ?? ""), /[^▀ ]/, "shadow stops at the spare row");
 	});
 });
 
 describe("buildHeader width invariant (S-06) — the process-killer guard", () => {
-	const itemSets: [string, string[], string[]][] = [
-		["empty", [], []],
-		["short", ["alpha", "beta"], ["gamma-ext"]],
+	const itemSets: [string, string[], string[], string[]][] = [
+		["empty", [], [], []],
+		["short", ["AGENTS.md"], ["alpha", "beta"], ["gamma-ext"]],
 		[
 			"many",
+			Array.from({ length: 3 }, (_, i) => `docs/CLAUDE-${i}.md`),
 			Array.from({ length: 24 }, (_, i) => `skill-${i}`),
 			Array.from({ length: 40 }, (_, i) => `extension-package-${i}`),
 		],
 	];
 	it("every line exactly fills the width, for widths 1..200", () => {
-		for (const [label, skills, extensions] of itemSets) {
+		for (const [label, context, skills, extensions] of itemSets) {
 			for (const termRows of [10, 24, 40, 120]) {
 				for (let width = 1; width <= 200; width++) {
-					const lines = buildHeader(width, termRows, theme, skills, extensions, MODEL, 4000);
+					const lines = buildHeader(width, termRows, theme, context, skills, extensions, MODEL, 4000);
 					assertLinesExact(lines, width, `buildHeader(${label}, rows=${termRows}, width=${width})`);
 				}
 			}
@@ -195,29 +203,41 @@ describe("buildHeader width invariant (S-06) — the process-killer guard", () =
 	});
 	it("holds without model or prompt size", () => {
 		for (let width = 1; width <= 200; width += 7) {
-			assertLinesExact(buildHeader(width, 40, theme, ["a"], ["b"]), width, `no-model width=${width}`);
+			assertLinesExact(buildHeader(width, 40, theme, ["AGENTS.md"], ["a"], ["b"]), width, `no-model width=${width}`);
 		}
 	});
 });
 
 describe("collapse conditions (S-07)", () => {
+	const context = ["AGENTS.md"];
 	const skills = ["alpha", "beta"];
 	const extensions = ["gamma", "delta"];
 
-	it("tall terminal with fitting names lists everything inline", () => {
-		const lines = buildHeader(160, 60, theme, skills, extensions, MODEL, 4000);
+	it("tall terminal with fitting names lists everything inline, context first", () => {
+		const lines = buildHeader(160, 60, theme, context, skills, extensions, MODEL, 4000);
 		const text = lines.map((l) => sanitizeTuiText(l)).join("\n");
-		for (const name of [...skills, ...extensions]) {
+		for (const name of [...context, ...skills, ...extensions]) {
 			assert.ok(text.includes(name), `${name} should be listed inline`);
 		}
+		assert.ok(text.includes("[context] 1"), "context heading with count");
+		assert.ok(text.indexOf("[context]") < text.indexOf("[skills]"), "context section precedes skills");
+		assert.ok(text.indexOf("[skills]") < text.indexOf("[extensions]"), "skills precedes extensions");
 	});
 
 	it("row budget exceeded collapses to a counts line", () => {
 		const manySkills = Array.from({ length: 40 }, (_, i) => `skill-number-${i}`);
-		const lines = buildHeader(160, 12, theme, manySkills, extensions, MODEL, 4000);
+		const lines = buildHeader(160, 12, theme, context, manySkills, extensions, MODEL, 4000);
 		const text = lines.map((l) => sanitizeTuiText(l)).join("\n");
 		assert.ok(text.includes("[skills] 40"), "counts line expected");
 		assert.equal(text.includes("skill-number-0"), false, "names must not be listed");
+	});
+
+	it("a context path wider than the panel collapses to a counts line", () => {
+		const wide = "an/extraordinarily-long/path/with-a-very-long-AGENTS-name-that-cannot-fit-any-panel.md";
+		const lines = buildHeader(100, 60, theme, [wide], skills, extensions, MODEL, 4000);
+		const text = lines.map((l) => sanitizeTuiText(l)).join("\n");
+		assert.ok(text.includes("[context] 1"), "counts line expected");
+		assert.equal(text.includes(wide), false, "the overlong path must not be listed");
 	});
 
 	it("inline listing never exceeds the 60% row budget (README)", () => {
@@ -225,7 +245,7 @@ describe("collapse conditions (S-07)", () => {
 		let inlineSeen = false;
 		let collapsedSeen = false;
 		for (let termRows = 30; termRows <= 60; termRows += 2) {
-			const lines = buildHeader(160, termRows, theme, mediumSet, extensions, MODEL, 4000);
+			const lines = buildHeader(160, termRows, theme, ["AGENTS.md"], mediumSet, extensions, MODEL, 4000);
 			if (lines.some((line) => sanitizeTuiText(line).includes(mediumSet[0]!))) {
 				inlineSeen = true;
 				assert.ok(
@@ -242,7 +262,7 @@ describe("collapse conditions (S-07)", () => {
 
 	it("a name wider than the panel collapses to a counts line", () => {
 		const wide = "an-extraordinarily-long-skill-name-that-cannot-possibly-fit-in-any-panel-column-budget";
-		const lines = buildHeader(100, 60, theme, [wide], extensions, MODEL, 4000);
+		const lines = buildHeader(100, 60, theme, ["AGENTS.md"], [wide], extensions, MODEL, 4000);
 		const text = lines.map((l) => sanitizeTuiText(l)).join("\n");
 		assert.ok(text.includes("[skills] 1"), "counts line expected");
 		assert.equal(text.includes(wide), false, "the overlong name must not be listed");
@@ -255,7 +275,7 @@ describe("layout stacking (S-08)", () => {
 	const sideBySideMin = 2 * SPLASH_MARGIN_X + LOGO_WIDTH + LOGO_GAP + PANEL_MIN_WIDTH;
 
 	it("wide terminals put the panel beside the logo", () => {
-		const lines = buildHeader(sideBySideMin + 20, 50, theme, ["alpha"], ["beta"], MODEL, 4000);
+		const lines = buildHeader(sideBySideMin + 20, 50, theme, ["AGENTS.md"], ["alpha"], ["beta"], MODEL, 4000);
 		assert.ok(
 			lines.some((l) => l.includes(logoFg) && l.includes(panelBgSgr)),
 			"some row should carry both logo ink and panel plate",
@@ -263,7 +283,7 @@ describe("layout stacking (S-08)", () => {
 	});
 
 	it("narrow terminals stack the panel under the logo", () => {
-		const lines = buildHeader(sideBySideMin - 6, 60, theme, ["alpha"], ["beta"], MODEL, 4000);
+		const lines = buildHeader(sideBySideMin - 6, 60, theme, ["AGENTS.md"], ["alpha"], ["beta"], MODEL, 4000);
 		assert.equal(
 			lines.some((l) => l.includes(logoFg) && l.includes(panelBgSgr)),
 			false,

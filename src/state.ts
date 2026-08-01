@@ -10,6 +10,7 @@ export const state = {
 	quietStartupEnsured: false,
 	loadedSkills: [] as string[],
 	loadedExtensions: [] as string[],
+	loadedContext: [] as string[],
 	systemPromptSize: undefined as number | undefined,
 };
 

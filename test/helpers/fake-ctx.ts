@@ -11,6 +11,7 @@ export interface FakeCtxBag {
 	systemPrompt: string | (() => string);
 	mode: string;
 	hasUI: boolean;
+	projectTrusted: boolean;
 }
 
 export interface FakeCtxHarness {
@@ -36,6 +37,7 @@ export interface FakeCtxOptions {
 	systemPrompt?: string | (() => string);
 	mode?: string;
 	hasUI?: boolean;
+	projectTrusted?: boolean;
 }
 
 /** Implements only the ExtensionContext surface the extension touches. */
@@ -49,6 +51,7 @@ export function createFakeCtx(options: FakeCtxOptions): FakeCtxHarness {
 		systemPrompt: options.systemPrompt ?? "test system prompt",
 		mode: options.mode ?? "tui",
 		hasUI: options.hasUI ?? true,
+		projectTrusted: options.projectTrusted ?? false,
 	};
 	const harness = {
 		bag,
@@ -114,6 +117,9 @@ export function createFakeCtx(options: FakeCtxOptions): FakeCtxHarness {
 		},
 		get model() {
 			return bag.model;
+		},
+		isProjectTrusted(): boolean {
+			return bag.projectTrusted;
 		},
 		getSystemPrompt(): string {
 			return typeof bag.systemPrompt === "function" ? bag.systemPrompt() : bag.systemPrompt;

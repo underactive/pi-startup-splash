@@ -37,10 +37,10 @@ export function buildLabeledWrappedSection(theme: Theme, label: string, items: s
 	return [heading, ...wrapped.map((line) => theme.fg("text", line))];
 }
 
-/** Both lists collapsed to `[skills] 22 · [extensions] 33`, for panels too small to spell them out. */
-export function buildCountsLine(theme: Theme, skills: string[], extensions: string[], width: number): string {
+/** All three lists collapsed to `[context] 2 · [skills] 22 · [extensions] 33`, for panels too small to spell them out. */
+export function buildCountsLine(theme: Theme, context: string[], skills: string[], extensions: string[], width: number): string {
 	const count = (label: string, items: string[]) => `${theme.fg("warning", label)} ${theme.fg("text", String(items.length))}`;
-	const line = `${count("[skills]", skills)}${theme.fg("dim", " · ")}${count("[extensions]", extensions)}`;
+	const line = `${count("[context]", context)}${theme.fg("dim", " · ")}${count("[skills]", skills)}${theme.fg("dim", " · ")}${count("[extensions]", extensions)}`;
 	return padCenter(fitCell(line, width), width);
 }
 
@@ -168,11 +168,13 @@ export function paintSplash(width: number, height: number, logoX: number, logoY:
  * Builds the splash: a full-bleed rainbow swatch carrying the pi logo on the left and the dark
  * info panel beside it. Terminals too narrow for both stack the panel under the logo. The splash
  * grows to whatever height the panel needs so every entry is listed in full; when that would
- * either overrun the row budget or cut off the longest name, both lists collapse to counts.
+ * either overrun the row budget or cut off the longest name, the lists collapse to counts.
  *
- * Every layout keeps a spare row below the logo, where its drop shadow lands.
+ * The info panel lists the loaded context files (AGENTS.md/CLAUDE.md), skills and extensions,
+ * each under a `[context] N`/`[skills] N`/`[extensions] N` heading, mirroring pi's /loaded
+ * ordering. Every layout keeps a spare row below the logo, where its drop shadow lands.
  */
-export function buildHeader(width: number, termRows: number, theme: Theme, skills: string[], extensions: string[], model?: { id: string; provider: string }, systemPromptSize?: number): string[] {
+export function buildHeader(width: number, termRows: number, theme: Theme, context: string[], skills: string[], extensions: string[], model?: { id: string; provider: string }, systemPromptSize?: number): string[] {
 	const logoRows = LOGO_LINES.length;
 	const roomBesideLogo = width - SPLASH_MARGIN_X * 2 - LOGO_WIDTH - LOGO_GAP;
 	const sideBySide = roomBesideLogo >= PANEL_MIN_WIDTH;
@@ -189,9 +191,11 @@ export function buildHeader(width: number, termRows: number, theme: Theme, skill
 
 	// The budget never drops below what the logo alone needs, since nothing can shrink past that.
 	const rowBudget = Math.max(logoRows + 2, Math.floor(termRows * MAX_SPLASH_ROW_SHARE));
-	const widestItem = Math.max(0, ...skills.map(visibleLength), ...extensions.map(visibleLength));
+	const widestItem = Math.max(0, ...context.map(visibleLength), ...skills.map(visibleLength), ...extensions.map(visibleLength));
 	const listed = widestItem <= innerWidth
 		? frame([
+			...buildLabeledWrappedSection(theme, "[context]", context, innerWidth, context.length),
+			"",
 			...buildLabeledWrappedSection(theme, "[skills]", skills, innerWidth, skills.length),
 			"",
 			...buildLabeledWrappedSection(theme, "[extensions]", extensions, innerWidth, extensions.length),
@@ -199,7 +203,7 @@ export function buildHeader(width: number, termRows: number, theme: Theme, skill
 		: undefined;
 	const lines = listed && splashHeight(listed) <= rowBudget
 		? listed
-		: frame([buildCountsLine(theme, skills, extensions, innerWidth)]);
+		: frame([buildCountsLine(theme, context, skills, extensions, innerWidth)]);
 	const height = splashHeight(lines);
 	const panelX = sideBySide ? width - SPLASH_MARGIN_X - panelWidth : Math.max(0, Math.floor((width - panelWidth) / 2));
 	return paintSplash(
