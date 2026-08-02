@@ -46,5 +46,5 @@ Restart Pi (or run `/reload`) to pick it up.
 - Both the splash and the gate are skipped when the environment variable `PI_SPLASH_GATE_DONE=1` is set — an internal guard the extension sets on sessions it relaunches so the gate cannot re-trigger in a loop; relaunched sessions start on a clean screen.
 - Splash shows but the gate does not? `/startup-splash menuGate:off` was run at some point — that choice persists across launches, so run `/startup-splash menuGate:on` to bring the menu back.
 - On `reload` events the gate is intentionally skipped — only a genuine `startup` reason triggers it.
-- Check that the extension is symlinked into `~/.pi/agent/extensions/` and that pi discovers it: `pi --verbose` prints a section listing every extension that loaded (it overrides `quietStartup`).
+- Check that the package is installed under `~/.pi/agent/npm/node_modules/@underactive/pi-startup-splash` and that `pi --verbose` lists the loaded extension (it overrides `quietStartup`).
 - Truecolor (24-bit color) support in your terminal is required for the rainbow swatch backdrop and shimmer effect. On non-truecolor themes the shimmer and panel styling fall back to a plain render; the backdrop's truecolor escapes are left to the terminal's own handling.
