@@ -60,8 +60,8 @@ export function buildRelaunchArgs(overrides: RelaunchOverrides): string[] {
 /**
  * Relaunch pi in-place: stop the TUI to release the terminal, run a fresh pi process with the
  * rebuilt args (inheriting stdio so the child fully owns the terminal), then shut down this
- * parent once the child exits. The `GATE_DONE_ENV` guard stops the child from re-showing the
- * gate, so it lands directly in the session.
+ * parent only after the child exits cleanly. The `GATE_DONE_ENV` guard stops the child from
+ * re-showing the gate, so it lands directly in the session.
  */
 export function relaunchPi(tui: TUI, ctx: ExtensionContext, overrides: RelaunchOverrides): void {
 	const args = buildRelaunchArgs(overrides);
@@ -75,6 +75,11 @@ export function relaunchPi(tui: TUI, ctx: ExtensionContext, overrides: RelaunchO
 	// top of a clean terminal with no splash left behind in history.
 	process.stdout.write("\x1b[2J\x1b[H\x1b[3J");
 	const env = { ...process.env, [GATE_DONE_ENV]: "1" };
-	spawnSync(process.execPath, [entry, ...args], { stdio: "inherit", env });
+	const result = spawnSync(process.execPath, [entry, ...args], { stdio: "inherit", env });
+	if (result.error || result.status !== 0 || result.signal) {
+		const reason = result.error?.message ?? (result.signal ? `terminated by ${result.signal}` : `exited with code ${result.status ?? "unknown"}`);
+		ctx.ui.notify(`Cannot relaunch pi: ${reason}`, "error");
+		return;
+	}
 	ctx.shutdown();
 }

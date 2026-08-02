@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Model refs, theme names and splash list items are sanitized before they reach the renderer, so a
   name carrying escape sequences can no longer break out of the themed styling. Model and theme
   labels that sanitize to nothing fall back to a placeholder; splash items that do are dropped
+- A failed relaunch no longer takes the session down with it. When the child pi process cannot be
+  spawned, is signalled, or exits non-zero, the reason is reported and the current session stays
+  open instead of shutting down into a terminal the child never took over
 
 ## [0.2.0] - 2026-08-01
 
