@@ -222,7 +222,7 @@ export class StartupGate {
 				const model = this.ctx.modelRegistry.find(selection.ref.provider, selection.ref.id);
 				// setModel resolves false when the provider has no API key configured.
 				if (!model || !(await this.pi.setModel(model))) {
-					this.ctx.ui.notify(`Could not switch to ${modelRefLabel(selection.ref)}`, "error");
+					this.ctx.ui.notify(`Could not switch to ${sanitizeTuiText(modelRefLabel(selection.ref)) || "(invalid model)"}`, "error");
 					this.tui.requestRender();
 					return;
 				}
@@ -453,7 +453,8 @@ export class StartupGate {
 				const selected = idx === this.themeIndex;
 				const isCurrent = entry.name === this.savedThemeName;
 				const marker = isCurrent ? this.theme.fg("success", "●") : " ";
-				const styled = selected ? this.theme.fg("accent", entry.name) : this.theme.fg("text", entry.name);
+				const label = sanitizeTuiText(entry.name) || "(invalid theme)";
+				const styled = selected ? this.theme.fg("accent", label) : this.theme.fg("text", label);
 				body.push(`${selected ? "▶" : " "} ${marker} ${styled}`);
 			}
 			if (this.themes.length > GATE_LIST_HEIGHT) {

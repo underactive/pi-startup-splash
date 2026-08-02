@@ -3,6 +3,7 @@ import { getSelectListTheme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { SelectList, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { SelectItem } from "@earendil-works/pi-tui";
+import { sanitizeTuiText } from "./text.ts";
 import { GATE_LIST_HEIGHT, fuzzyRanked, isPrintableInput } from "./gate-ui.ts";
 
 /**
@@ -53,8 +54,9 @@ export function defaultThinkingForModel(options: ThinkingLevel[], currentLevel: 
 
 /**
  * Two-pane selector: models on the left, the selected model's thinking levels on the right,
- * above a Select/Cancel action bar. Typed text always narrows the model filter, so tab and the
- * arrow keys (not letters) move focus between the panes and the buttons. Ported from
+ * above a Select/Cancel action bar. Typed text narrows the model filter while the model pane is
+ * active, so tab and the arrow keys (not letters) move focus between the panes and the buttons,
+ * and the buttons only handle arrows/Enter. Ported from
  * pi-moa-plan's picker of the same name so both extensions select models identically.
  *
  * Render-pure: mutations never request a render, because every entry point runs inside
@@ -82,7 +84,10 @@ export class TwoPaneModelThinking {
 		this.theme = theme;
 		this.ctx = ctx;
 		this.currentThinking = currentThinking;
-		this.modelItems = availableRefs.map((ref) => ({ value: modelRefLabel(ref), label: modelRefLabel(ref) }));
+		this.modelItems = availableRefs.map((ref) => {
+			const value = modelRefLabel(ref);
+			return { value, label: sanitizeTuiText(value) || "(invalid model)" };
+		});
 		this.rebuildModelList();
 		if (defaultRef) {
 			const index = this.modelItems.findIndex((item) => item.value === modelRefLabel(defaultRef));

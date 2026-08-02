@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   source string, so its per-package `extensions`/`autoload` filter was dropped and every extension
   of the package was listed as loaded. Package entry filters, `autoload: false` deltas and pi's
   version-agnostic package-identity dedupe are now mirrored
+- Model refs, theme names and splash list items are sanitized before they reach the renderer, so a
+  name carrying escape sequences can no longer break out of the themed styling. Model and theme
+  labels that sanitize to nothing fall back to a placeholder; splash items that do are dropped
 
 ## [0.2.0] - 2026-08-01
 

@@ -3,7 +3,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { RESET, panelBg, sgrBg, sgrFg, swatchColor } from "./color.ts";
 import type { Rgb } from "./color.ts";
 import { LOGO_INK, LOGO_LINES, LOGO_SHADOW, LOGO_SHADOW_OFFSET, LOGO_WIDTH } from "./logo.ts";
-import { fitCell, formatPromptSize, joinParts, padCenter, padRight, pickFitting, truncateVisible, visibleLength, wrapCommaDelimited } from "./text.ts";
+import { fitCell, formatPromptSize, joinParts, padCenter, padRight, pickFitting, sanitizeTuiText, truncateVisible, visibleLength, wrapCommaDelimited } from "./text.ts";
 import { renderTagline } from "./reveal.ts";
 
 /**
@@ -30,7 +30,8 @@ export const MAX_SPLASH_ROW_SHARE = 0.6;
 
 /** A heading row, then the items wrapped as a block beneath it across the panel's full width. */
 export function buildLabeledWrappedSection(theme: Theme, label: string, items: string[], width: number, count?: number): string[] {
-	const wrapped = wrapCommaDelimited(items.length > 0 ? items : ["none"], width);
+	const safeItems = items.map(sanitizeTuiText).filter((item): item is string => item.length > 0);
+	const wrapped = wrapCommaDelimited(safeItems.length > 0 ? safeItems : ["none"], width);
 	// Items carry an explicit color: on the panel plate there is no default foreground to fall
 	// back on, only whatever the swatch cell to the left of the panel happened to set.
 	const heading = count === undefined ? theme.fg("warning", label) : `${theme.fg("warning", label)} ${theme.fg("text", String(count))}`;
@@ -47,7 +48,7 @@ export function buildCountsLine(theme: Theme, context: string[], skills: string[
 /**
  * Interior lines of the info panel, mirroring the splash's rule/tagline/body rhythm: the pi
  * version as a titled rule, the active model as a centered tagline, then `body` (the loaded
- * skills and extensions, either listed in full or collapsed to counts).
+ * context, skills, and extensions, either listed in full or collapsed to counts).
  */
 export function buildPanelLines(theme: Theme, innerWidth: number, body: string[], model?: { id: string; provider: string }, systemPromptSize?: number): string[] {
 	const title = `pi v${VERSION}`;
