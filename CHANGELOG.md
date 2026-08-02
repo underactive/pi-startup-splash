@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `[extensions]` list no longer shows extensions that a settings `packages` entry disables. The
+  object form of an entry (`{"source": "npm:pkg", "extensions": ["-index.ts"]}`) was reduced to its
+  source string, so its per-package `extensions`/`autoload` filter was dropped and every extension
+  of the package was listed as loaded. Package entry filters, `autoload: false` deltas and pi's
+  version-agnostic package-identity dedupe are now mirrored
+
 ## [0.2.0] - 2026-08-01
 
 ### Changed

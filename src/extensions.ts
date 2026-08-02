@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { homedir } from "node:os";
@@ -15,6 +16,15 @@ import { uniqueSorted } from "./text.ts";
  * project `.pi/extensions` dirs, and CLI `--extension` sources — and labels them with pi's own
  * compact-label algorithm so the `[extensions]` list matches pi's startup screen exactly.
  */
+
+/** The object form of a settings `packages` entry: per-resource-type patterns plus the autoload flag. */
+type PackageFilter = Exclude<PackageSource, string>;
+
+/** A settings `packages` entry paired with the scope it was configured in. */
+interface ScopedPackage {
+	pkg: PackageSource;
+	scope: "user" | "project";
+}
 
 /** A loaded extension entry, mirroring the resource loader's `{path, sourceInfo}` items. */
 export interface DiscoveredExtension {
@@ -481,16 +491,27 @@ function applyPatterns(allPaths: string[], patterns: string[], baseDir: string):
 		else if (p.startsWith("!")) excludes.push(p.slice(1));
 		else includes.push(p);
 	}
+	const exactIncludes = forceIncludes.map(normalizeExactPattern);
+	const exactExcludes = forceExcludes.map(normalizeExactPattern);
+	const matchesExact = (filePath: string, normalizedPatterns: string[]): boolean => {
+		if (normalizedPatterns.length === 0) return false;
+		const rel = toPosixPath(relative(baseDir, filePath));
+		const name = basename(filePath);
+		const filePathPosix = toPosixPath(filePath);
+		return normalizedPatterns.some((pattern) => pattern === rel || pattern === filePathPosix || pattern === name);
+	};
 	let result = includes.length === 0 ? [...allPaths] : allPaths.filter((f) => matchesAnyPattern(f, includes, baseDir));
+	const resultSet = new Set(result);
 	if (excludes.length > 0) result = result.filter((f) => !matchesAnyPattern(f, excludes, baseDir));
-	if (forceIncludes.length > 0) {
+	if (exactIncludes.length > 0) {
 		for (const filePath of allPaths) {
-			if (!result.includes(filePath) && matchesAnyExactPattern(filePath, forceIncludes, baseDir)) {
+			if (!resultSet.has(filePath) && matchesExact(filePath, exactIncludes)) {
 				result.push(filePath);
+				resultSet.add(filePath);
 			}
 		}
 	}
-	if (forceExcludes.length > 0) result = result.filter((f) => !matchesAnyExactPattern(f, forceExcludes, baseDir));
+	if (exactExcludes.length > 0) result = result.filter((f) => !matchesExact(f, exactExcludes));
 	return new Set(result);
 }
 
@@ -523,12 +544,80 @@ function addManifestEntries(entries: string[] | undefined, root: string, metadat
 	}
 }
 
+/** pi's `collectDefaultResources` for extensions: the manifest's own entries, else the conventional dir. */
+function collectDefaultResources(packageRoot: string, metadata: ResourceMetadata, target: ResourceMap): void {
+	const entries = readPiManifest(packageRoot)?.extensions;
+	if (entries) {
+		addManifestEntries(entries, packageRoot, metadata, target);
+		return;
+	}
+	const dir = join(packageRoot, "extensions");
+	if (existsSync(dir)) {
+		for (const f of collectAutoExtensionEntries(dir)) addResource(target, f, metadata, true);
+	}
+}
+
 /**
- * pi's `collectPackageResources` for extensions: a `pi` manifest (its `pi.extensions` entries),
- * else the conventional `extensions/` subdirectory, else nothing — the caller then treats the
- * root itself as the extension.
+ * pi's `collectManifestFiles` for extensions: the package's manifest entries narrowed by the
+ * manifest's own `+`/`-`/`!` patterns, else the conventional `extensions/` dir. This is the file
+ * set a settings-level package filter then selects from.
  */
-function collectPackageResources(packageRoot: string, metadata: ResourceMetadata, target: ResourceMap): boolean {
+function collectManifestFiles(packageRoot: string): string[] {
+	const entries = readPiManifest(packageRoot)?.extensions;
+	if (entries && entries.length > 0) {
+		const allFiles = collectFilesFromManifestEntries(entries, packageRoot);
+		const manifestPatterns = entries.filter(isOverridePattern);
+		return manifestPatterns.length > 0 ? Array.from(applyPatterns(allFiles, manifestPatterns, packageRoot)) : allFiles;
+	}
+	const conventionDir = join(packageRoot, "extensions");
+	return existsSync(conventionDir) ? collectAutoExtensionEntries(conventionDir) : [];
+}
+
+/**
+ * pi's `applyPackageFilter`: the settings entry's `extensions` patterns select which of the
+ * package's files load. An empty array explicitly disables every extension in the package.
+ */
+function applyPackageFilter(packageRoot: string, patterns: string[], metadata: ResourceMetadata, target: ResourceMap): void {
+	const allFiles = collectManifestFiles(packageRoot);
+	const enabled = patterns.length === 0 ? new Set<string>() : applyPatterns(allFiles, patterns, packageRoot);
+	for (const f of allFiles) addResource(target, f, metadata, enabled.has(f));
+}
+
+/**
+ * pi's `applyAutoloadDisabledPatterns`: under `autoload: false` the entry is a delta, so only the
+ * files a pattern names change state and the last matching pattern wins.
+ */
+function applyPackageDeltaFilter(packageRoot: string, patterns: string[], metadata: ResourceMetadata, target: ResourceMap): void {
+	if (patterns.length === 0) return;
+	const allFiles = collectManifestFiles(packageRoot);
+	const states = new Map<string, boolean>();
+	for (const pattern of patterns) {
+		const exact = pattern.startsWith("+") || pattern.startsWith("-");
+		const body = exact || pattern.startsWith("!") ? pattern.slice(1) : pattern;
+		const enabled = !pattern.startsWith("-") && !pattern.startsWith("!");
+		for (const filePath of allFiles) {
+			const matches = exact
+				? matchesAnyExactPattern(filePath, [body], packageRoot)
+				: matchesAnyPattern(filePath, [body], packageRoot);
+			if (matches) states.set(filePath, enabled);
+		}
+	}
+	for (const [filePath, enabled] of states) addResource(target, filePath, metadata, enabled);
+}
+
+/**
+ * pi's `collectPackageResources` for extensions. With a settings filter (the object form of a
+ * `packages` entry) the filter decides what loads and the package always counts as resolved;
+ * without one, a `pi` manifest (its `pi.extensions` entries), else the conventional `extensions/`
+ * subdirectory, else nothing — the caller then treats the root itself as the extension.
+ */
+function collectPackageResources(packageRoot: string, metadata: ResourceMetadata, target: ResourceMap, filter?: PackageFilter): boolean {
+	if (filter) {
+		if (filter.autoload === false) applyPackageDeltaFilter(packageRoot, filter.extensions ?? [], metadata, target);
+		else if (filter.extensions !== undefined) applyPackageFilter(packageRoot, filter.extensions, metadata, target);
+		else collectDefaultResources(packageRoot, metadata, target);
+		return true;
+	}
 	const manifest = readPiManifest(packageRoot);
 	if (manifest) {
 		addManifestEntries(manifest.extensions, packageRoot, metadata, target);
@@ -543,7 +632,7 @@ function collectPackageResources(packageRoot: string, metadata: ResourceMetadata
 }
 
 /** pi's `resolveLocalExtensionSource` for local path packages: a file is the extension, a dir is a package. */
-function resolveLocalExtensionSource(sourcePath: string, baseDir: string, metadata: ResourceMetadata, target: ResourceMap): void {
+function resolveLocalExtensionSource(sourcePath: string, baseDir: string, metadata: ResourceMetadata, target: ResourceMap, filter?: PackageFilter): void {
 	const resolved = resolvePathFromBase(sourcePath, baseDir);
 	if (!existsSync(resolved)) return;
 	try {
@@ -554,7 +643,7 @@ function resolveLocalExtensionSource(sourcePath: string, baseDir: string, metada
 		}
 		if (stats.isDirectory()) {
 			const dirMetadata = { ...metadata, baseDir: resolved };
-			if (!collectPackageResources(resolved, dirMetadata, target)) {
+			if (!collectPackageResources(resolved, dirMetadata, target, filter)) {
 				addResource(target, resolved, dirMetadata, true);
 			}
 		}
@@ -580,54 +669,127 @@ function parseGitSource(source: string): { host: string; path: string } | undefi
 	return { host: spec.slice(0, slash), path: spec.slice(slash + 1) };
 }
 
-/**
- * pi's `resolvePackageSources` for one settings `packages` entry. Packages not installed yet are
- * skipped: pi installs them during startup, so a missing install means pi does not list them either.
- */
-function resolvePackageSource(source: string, scope: "user" | "project", agentDir: string, cwd: string, target: ResourceMap): void {
-	const metadata: ResourceMetadata = { source, scope, origin: "package" };
-	if (source.startsWith("npm:")) {
-		const { name } = parseNpmSpec(source.slice("npm:".length));
-		const installPath = scope === "project"
-			? join(cwd, CONFIG_DIR_NAME, "npm", "node_modules", name)
-			: join(agentDir, "npm", "node_modules", name);
-		if (!existsSync(installPath)) return;
-		collectPackageResources(installPath, { ...metadata, baseDir: installPath }, target);
-		return;
-	}
+function packageSourceString(pkg: PackageSource): string {
+	return typeof pkg === "string" ? pkg : pkg.source;
+}
+
+/** pi's `getBaseDirForScope`: the agent dir for user scope, the project `.pi` dir for project scope. */
+function baseDirForScope(scope: "user" | "project", agentDir: string, cwd: string): string {
+	return scope === "project" ? join(cwd, CONFIG_DIR_NAME) : agentDir;
+}
+
+/** pi's `getPackageIdentity`: version-agnostic npm name, normalized git host/path, or the resolved local path. */
+function packageIdentity(source: string, scope: "user" | "project", agentDir: string, cwd: string): string {
+	if (source.startsWith("npm:")) return `npm:${parseNpmSpec(source.slice("npm:".length)).name}`;
 	if (source.startsWith("git:")) {
 		const parsed = parseGitSource(source);
-		if (!parsed) return;
-		const installPath = scope === "project"
-			? join(cwd, CONFIG_DIR_NAME, "git", parsed.host, parsed.path)
-			: join(agentDir, "git", parsed.host, parsed.path);
+		if (parsed) return `git:${parsed.host}/${parsed.path}`;
+	}
+	return `local:${resolvePathFromBase(source, baseDirForScope(scope, agentDir, cwd))}`;
+}
+
+/**
+ * pi's `dedupePackages`: for one package identity a project entry replaces a user entry in place,
+ * except when the project entry is an `autoload: false` delta — then both are kept, delta first.
+ */
+function dedupePackages(packages: ScopedPackage[], agentDir: string, cwd: string): ScopedPackage[] {
+	const result: ScopedPackage[] = [];
+	const seen = new Map<string, number>();
+	for (const entry of packages) {
+		const identity = packageIdentity(packageSourceString(entry.pkg), entry.scope, agentDir, cwd);
+		const index = seen.get(identity);
+		if (index === undefined) {
+			seen.set(identity, result.length);
+			result.push(entry);
+			continue;
+		}
+		const existing = result[index]!;
+		if (existing.scope === "project" && entry.scope === "user") {
+			if (typeof existing.pkg === "object" && existing.pkg.autoload === false) result.push(entry);
+		} else if (entry.scope === "project") {
+			result[index] = entry;
+		}
+	}
+	return result;
+}
+
+/**
+ * pi's `findAutoloadDeltaBase`: a project `autoload: false` entry carries no install of its own,
+ * it layers deltas over the same package's user-scope install.
+ */
+function findAutoloadDeltaBase(entry: ScopedPackage, sources: ScopedPackage[], agentDir: string, cwd: string): ScopedPackage | undefined {
+	if (entry.scope !== "project" || typeof entry.pkg === "string" || entry.pkg.autoload !== false) return undefined;
+	const identity = packageIdentity(entry.pkg.source, entry.scope, agentDir, cwd);
+	return sources.find(
+		(candidate) =>
+			candidate.scope === "user" &&
+			packageIdentity(packageSourceString(candidate.pkg), "user", agentDir, cwd) === identity,
+	);
+}
+
+/**
+ * pi's `resolvePackageSources` for one settings `packages` entry. The object form's per-resource
+ * patterns travel with the entry as a filter; `install` is where its files live, which differs from
+ * the entry itself only for `autoload: false` deltas. Packages not installed yet are skipped: pi
+ * installs them during startup, so a missing install means pi does not list them either.
+ */
+function resolvePackageSource(entry: ScopedPackage, install: ScopedPackage, agentDir: string, cwd: string, target: ResourceMap): void {
+	const metadata: ResourceMetadata = { source: packageSourceString(entry.pkg), scope: entry.scope, origin: "package" };
+	const filter = typeof entry.pkg === "object" ? entry.pkg : undefined;
+	const installSource = packageSourceString(install.pkg);
+	const baseDir = baseDirForScope(install.scope, agentDir, cwd);
+	if (installSource.startsWith("npm:")) {
+		const { name } = parseNpmSpec(installSource.slice("npm:".length));
+		const installPath = join(baseDir, "npm", "node_modules", name);
 		if (!existsSync(installPath)) return;
-		collectPackageResources(installPath, { ...metadata, baseDir: installPath }, target);
+		collectPackageResources(installPath, { ...metadata, baseDir: installPath }, target, filter);
 		return;
 	}
-	resolveLocalExtensionSource(source, scope === "project" ? join(cwd, CONFIG_DIR_NAME) : agentDir, metadata, target);
+	if (installSource.startsWith("git:")) {
+		const parsed = parseGitSource(installSource);
+		if (!parsed) return;
+		const installPath = join(baseDir, "git", parsed.host, parsed.path);
+		if (!existsSync(installPath)) return;
+		collectPackageResources(installPath, { ...metadata, baseDir: installPath }, target, filter);
+		return;
+	}
+	resolveLocalExtensionSource(installSource, baseDir, metadata, target, filter);
 }
 
 /**
  * pi's `resolveExtensionSources` for CLI `--extension` values (temporary scope). `<inline:…>`
  * sources are pi's hidden built-ins and are never shown in its `[Extensions]` list. Temporary
- * npm/git installs live under the agent `tmp` dir, which the splash does not enumerate; those
- * fall back to the user/project install locations.
+ * npm/git installs live under the agent `tmp/extensions` tree, so this mirrors pi's temporary
+ * lookup instead of falling back to user/project installs.
  */
 function resolveCliExtensionSource(source: string, agentDir: string, cwd: string, target: ResourceMap): void {
 	if (source.startsWith("<inline:")) return;
 	const metadata: ResourceMetadata = { source, scope: "temporary", origin: "package" };
+	const temporaryInstallPath = (prefix: string, suffix = ""): string | undefined => {
+		const root = resolve(agentDir, "tmp", "extensions", prefix);
+		const hash = createHash("sha256").update(`${prefix}-${suffix}`).digest("hex").slice(0, 8);
+		const path = resolve(root, hash, suffix);
+		if (path !== root && !path.startsWith(`${root}${sep}`)) return undefined;
+		return path;
+	};
 	if (source.startsWith("npm:")) {
 		const { name } = parseNpmSpec(source.slice("npm:".length));
-		for (const candidate of [join(agentDir, "npm", "node_modules", name), join(cwd, CONFIG_DIR_NAME, "npm", "node_modules", name)]) {
-			if (existsSync(candidate)) {
-				collectPackageResources(candidate, { ...metadata, baseDir: candidate }, target);
-				return;
-			}
-		}
+		const installPath = temporaryInstallPath("npm");
+		if (!installPath) return;
+		const candidate = join(installPath, "node_modules", name);
+		if (!existsSync(candidate)) return;
+		collectPackageResources(candidate, { ...metadata, baseDir: candidate }, target);
 		return;
 	}
-	if (source.startsWith("git:")) return;
+	if (source.startsWith("git:")) {
+		const parsed = parseGitSource(source);
+		if (!parsed) return;
+		const installPath = temporaryInstallPath(`git-${parsed.host}`, parsed.path);
+		if (!installPath) return;
+		if (!existsSync(installPath)) return;
+		collectPackageResources(installPath, { ...metadata, baseDir: installPath }, target);
+		return;
+	}
 	resolveLocalExtensionSource(source, cwd, metadata, target);
 }
 
@@ -740,19 +902,27 @@ export function cliExtensionArgs(): CliExtensionArgs {
  */
 export function discoverLoadedExtensions(cwd: string, agentDir: string, projectTrusted: boolean): DiscoveredExtension[] {
 	try {
+		const cli = cliExtensionArgs();
+		const cliEntries: ResourceMap = new Map();
+		for (const source of cli.explicit) resolveCliExtensionSource(source, agentDir, cwd, cliEntries);
+		if (cli.noExtensions) return enabledExtensions(cliEntries);
+
 		const target: ResourceMap = new Map();
 		const settings = SettingsManager.create(cwd, agentDir);
 		const globalSettings = settings.getGlobalSettings();
 		const projectSettings = settings.getProjectSettings();
 		const projectPackages = projectTrusted ? projectSettings.packages ?? [] : [];
-		const packageSources: PackageSource[] = [...projectPackages, ...(globalSettings.packages ?? [])];
-		const seen = new Set<string>();
+		// Project first, so cwd resources win collisions.
+		const packageSources = dedupePackages(
+			[
+				...projectPackages.map((pkg): ScopedPackage => ({ pkg, scope: "project" })),
+				...(globalSettings.packages ?? []).map((pkg): ScopedPackage => ({ pkg, scope: "user" })),
+			].filter((entry) => packageSourceString(entry.pkg)),
+			agentDir,
+			cwd,
+		);
 		for (const entry of packageSources) {
-			const source = typeof entry === "string" ? entry : entry.source;
-			if (!source || seen.has(source)) continue;
-			seen.add(source);
-			const projectScope = projectPackages.some((p) => (typeof p === "string" ? p : p.source) === source);
-			resolvePackageSource(source, projectScope ? "project" : "user", agentDir, cwd, target);
+			resolvePackageSource(entry, findAutoloadDeltaBase(entry, packageSources, agentDir, cwd) ?? entry, agentDir, cwd, target);
 		}
 
 		if (projectTrusted) {
@@ -769,10 +939,6 @@ export function discoverLoadedExtensions(cwd: string, agentDir: string, projectT
 			projectSettings.extensions ?? [],
 		);
 
-		const cli = cliExtensionArgs();
-		const cliEntries: ResourceMap = new Map();
-		for (const source of cli.explicit) resolveCliExtensionSource(source, agentDir, cwd, cliEntries);
-		if (cli.noExtensions) return enabledExtensions(cliEntries);
 		for (const [path, entry] of cliEntries) {
 			if (!target.has(path)) target.set(path, entry);
 		}
@@ -793,9 +959,8 @@ function isPackageSource(source: string): boolean {
 
 function formatDisplayPath(p: string): string {
 	const home = homedir();
-	let result = p;
-	if (result.startsWith(home)) result = `~${result.slice(home.length)}`;
-	return result;
+	if (p === home || p.startsWith(`${home}${sep}`)) return `~${p.slice(home.length)}`;
+	return p;
 }
 
 function getShortPath(fullPath: string, sourceInfo: { source: string; baseDir?: string }): string {

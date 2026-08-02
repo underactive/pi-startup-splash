@@ -92,7 +92,7 @@ export function formatContextPath(p: string, cwd: string): string {
 	const insideCwd = rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 	if (insideCwd) return rel === "" ? "." : rel;
 	const home = homedir();
-	return absolute.startsWith(home) ? `~${absolute.slice(home.length)}` : absolute;
+	return absolute === home || absolute.startsWith(`${home}${sep}`) ? `~${absolute.slice(home.length)}` : absolute;
 }
 
 /**

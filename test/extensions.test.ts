@@ -168,6 +168,57 @@ describe("discoverLoadedExtensions: npm packages (E-03)", () => {
 	});
 });
 
+describe("discoverLoadedExtensions: package entry filters (E-10)", () => {
+	function seedNpmPackage(spec: string, entries: string[]): void {
+		const installPath = join(env.agentDir, "npm", "node_modules", spec);
+		writeJson(join(installPath, "package.json"), { name: spec, pi: { extensions: entries } });
+		for (const entry of entries) {
+			const entryPath = join(installPath, entry);
+			mkdirSync(join(entryPath, ".."), { recursive: true });
+			writeFileSync(entryPath, "");
+		}
+	}
+
+	it("a -<entry> pattern disables that extension but leaves the rest of the package", () => {
+		seedNpmPackage("multi-ext", ["./a.ts", "./b.ts"]);
+		writeSettings({ packages: [{ source: "npm:multi-ext", extensions: ["-a.ts"] }] });
+		assert.deepEqual(labels(), ["multi-ext:b.ts"]);
+	});
+	it("an empty extensions array disables the whole package", () => {
+		seedNpmPackage("multi-ext", ["./a.ts", "./b.ts"]);
+		writeSettings({ packages: [{ source: "npm:multi-ext", extensions: [] }] });
+		assert.deepEqual(labels(), []);
+	});
+	it("a plain pattern selects only the entries it names", () => {
+		seedNpmPackage("multi-ext", ["./a.ts", "./b.ts"]);
+		writeSettings({ packages: [{ source: "npm:multi-ext", extensions: ["a.ts"] }] });
+		assert.deepEqual(labels(), ["multi-ext:a.ts"]);
+	});
+	it("an object entry without extensions loads the package's manifest entries", () => {
+		seedNpmPackage("multi-ext", ["./a.ts", "./b.ts"]);
+		writeSettings({ packages: [{ source: "npm:multi-ext" }] });
+		assert.deepEqual(labels(), ["multi-ext:a.ts", "multi-ext:b.ts"]);
+	});
+	it("a project autoload:false entry deltas the user-scope install", () => {
+		seedNpmPackage("multi-ext", ["./a.ts", "./b.ts"]);
+		writeSettings({ packages: ["npm:multi-ext"] });
+		writeJson(join(env.cwd, ".pi", "settings.json"), {
+			packages: [{ source: "npm:multi-ext", autoload: false, extensions: ["-b.ts"] }],
+		});
+		assert.deepEqual(getLoadedExtensionLabels(env.cwd, env.agentDir, true), ["multi-ext:a.ts"]);
+	});
+	it("a project entry replaces the user entry for the same package identity", () => {
+		seedNpmPackage("multi-ext", ["./a.ts", "./b.ts"]);
+		const projectInstall = join(env.cwd, ".pi", "npm", "node_modules", "multi-ext");
+		writeJson(join(projectInstall, "package.json"), { name: "multi-ext", pi: { extensions: ["./a.ts"] } });
+		writeFileSync(join(projectInstall, "a.ts"), "");
+		writeSettings({ packages: ["npm:multi-ext"] });
+		writeJson(join(env.cwd, ".pi", "settings.json"), { packages: ["npm:multi-ext@2.0.0"] });
+		// Identity ignores the version when deduping, but pi's label keeps the spec verbatim.
+		assert.deepEqual(getLoadedExtensionLabels(env.cwd, env.agentDir, true), ["multi-ext@2.0.0:a.ts"]);
+	});
+});
+
 describe("discoverLoadedExtensions: local path packages (E-04)", () => {
 	it("a settings packages entry that is a path resolves relative to the agent dir", () => {
 		const pkgRoot = join(env.agentDir, "local-pkg");
