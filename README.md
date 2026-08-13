@@ -1,3 +1,6 @@
+> [!WARNING]
+> **This project is deprecated.** Use [pi-topping-splash](https://github.com/underactive/pi-topping-splash) instead.
+
 # pi-startup-splash
 
 Pi extension that replaces the default startup header with an edge-to-edge full-color splash and adds an interactive startup gate menu to the session launch flow.
